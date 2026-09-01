@@ -20,13 +20,18 @@ jobs:
 
           sudo apt-get install -y \
             build-essential \
+            gcc \
+            g++ \
+            make \
             git \
             zip \
             unzip \
-            openjdk-11-jdk \
+            openjdk-17-jdk \
             python3-pip \
+            python3-dev \
             autoconf \
             automake \
+            autopoint \
             libtool \
             pkg-config \
             zlib1g-dev \
@@ -35,12 +40,21 @@ jobs:
             libtinfo5 \
             cmake \
             libffi-dev \
-            libssl-dev
+            libssl-dev \
+            lbzip2
+
+      - name: Check compilers
+        run: |
+          gcc --version
+          g++ --version
+          make --version
+          java -version
 
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install --upgrade buildozer cython
+          python3 -m pip install --upgrade buildozer
+          python3 -m pip install "Cython==0.29.34"
 
       - name: Fix buildozer.spec
         run: |
@@ -55,7 +69,7 @@ jobs:
 
           in_app = False
           arch_seen = False
-          accept_seen = False
+          license_seen = False
 
           for line in lines:
               stripped = line.strip()
@@ -76,10 +90,10 @@ jobs:
               if in_app and stripped.startswith(
                   "android.accept_sdk_license"
               ):
-                  if accept_seen:
+                  if license_seen:
                       continue
 
-                  accept_seen = True
+                  license_seen = True
                   result.append(
                       "android.accept_sdk_license = True"
                   )
@@ -87,7 +101,16 @@ jobs:
 
               result.append(line)
 
-          if not accept_seen:
+          if not arch_seen:
+              for i, line in enumerate(result):
+                  if line.strip() == "[app]":
+                      result.insert(
+                          i + 1,
+                          "android.archs = arm64-v8a, armeabi-v7a"
+                      )
+                      break
+
+          if not license_seen:
               for i, line in enumerate(result):
                   if line.strip() == "[app]":
                       result.insert(
@@ -102,12 +125,15 @@ jobs:
           )
           PY
 
-          echo "===== buildozer.spec ====="
-          cat buildozer.spec
+          echo "===== BUILD CONFIG ====="
+          grep -E \
+            "^(requirements|android\.archs|android\.api|android\.minapi|android\.ndk|android\.accept_sdk_license)" \
+            buildozer.spec || true
 
       - name: Build APK
         env:
-          P4A_RELEASE_QUIET: "1"
+          CC: gcc
+          CXX: g++
         run: |
           buildozer -v android debug
 
