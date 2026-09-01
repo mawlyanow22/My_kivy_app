@@ -66,8 +66,6 @@ android.add_src =
 # (bool) Enable AndroidX
 android.enable_androidx = True
 
-# (bool) Enable Android app bundle
-android.arch = arm64-v8a, armeabi-v7a
 
 # (str) Log level
 log_level = 2
