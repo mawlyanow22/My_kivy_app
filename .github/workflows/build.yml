@@ -25,7 +25,7 @@ jobs:
             git \
             zip \
             unzip \
-            openjdk-11-jdk \
+            openjdk-17-jdk \
             python3-pip \
             python3-dev \
             autoconf \
@@ -49,11 +49,12 @@ jobs:
           make --version
           java -version
 
-      - name: Install Python dependencies
+      - name: Install Buildozer
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install --upgrade buildozer
-          python3 -m pip install "Cython==0.29.34"
+          python3 -m pip install \
+            "buildozer" \
+            "Cython==0.29.34"
 
       - name: Fix buildozer.spec
         run: |
@@ -63,13 +64,39 @@ jobs:
           p = Path("buildozer.spec")
           text = p.read_text(encoding="utf-8")
 
-          # Fix minimum Android API
-          text = text.replace(
-              "android.minapi = 23",
-              "android.minapi = 24"
+          # Android minimum API
+          import re
+          text = re.sub(
+              r"^android\.minapi\s*=.*$",
+              "android.minapi = 24",
+              text,
+              flags=re.MULTILINE
           )
 
-          # Remove old android.arch lines
+          # Use modern KivyMD 2.0.0 and explicitly list its Android dependencies
+          text = re.sub(
+              r"^requirements\s*=.*$",
+              "requirements = python3,kivy,kivymd==2.0.0,pillow,materialyoucolor==3.0.3,materialshapes,pycairo,exceptiongroup,asyncgui,asynckivy,android",
+              text,
+              flags=re.MULTILINE
+          )
+
+          # Use stable p4a master instead of the current develop branch
+          if re.search(r"^p4a\.branch\s*=", text, re.MULTILINE):
+              text = re.sub(
+                  r"^p4a\.branch\s*=.*$",
+                  "p4a.branch = master",
+                  text,
+                  flags=re.MULTILINE
+              )
+          else:
+              text = text.replace(
+                  "[app]",
+                  "[app]\np4a.branch = master",
+                  1
+              )
+
+          # Remove old duplicate android.arch
           lines = text.splitlines()
           result = []
           arch_added = False
@@ -87,7 +114,6 @@ jobs:
 
           text = "\n".join(result)
 
-          # Add android.archs if it doesn't exist
           if "android.archs =" not in text:
               text = text.replace(
                   "[app]",
@@ -95,7 +121,7 @@ jobs:
                   1
               )
 
-          # Add SDK license acceptance
+          # Android SDK license
           if "android.accept_sdk_license" not in text:
               text = text.replace(
                   "[app]",
@@ -108,8 +134,13 @@ jobs:
 
           echo "===== BUILD CONFIG ====="
           grep -E \
-            "^(requirements|android\.archs|android\.api|android\.minapi|android\.ndk|android\.accept_sdk_license)" \
+            "^(requirements|android\.archs|android\.api|android\.minapi|android\.ndk|android\.accept_sdk_license|p4a\.branch)" \
             buildozer.spec || true
+
+      - name: Clean previous Buildozer files
+        run: |
+          rm -rf .buildozer
+          rm -rf bin
 
       - name: Build APK
         env:
