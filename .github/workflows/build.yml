@@ -25,6 +25,7 @@ jobs:
             openjdk-17-jdk \
             python3-pip \
             autoconf \
+            automake \
             libtool \
             pkg-config \
             zlib1g-dev \
@@ -40,12 +41,72 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install --upgrade buildozer cython
 
+      - name: Prepare buildozer.spec
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("buildozer.spec")
+          text = p.read_text(encoding="utf-8")
+
+          lines = text.splitlines()
+          result = []
+          arch_seen = False
+          license_seen = False
+          in_app = False
+
+          for line in lines:
+              stripped = line.strip()
+
+              if stripped.startswith("["):
+                  in_app = stripped == "[app]"
+
+              if in_app and stripped.startswith("android.arch"):
+                  if arch_seen:
+                      continue
+                  arch_seen = True
+
+              if in_app and stripped.startswith("android.accept_sdk_license"):
+                  if license_seen:
+                      continue
+
+                  license_seen = True
+                  result.append("android.accept_sdk_license = True")
+                  continue
+
+              result.append(line)
+
+          if not license_seen:
+              insert_at = next(
+                  (
+                      i + 1
+                      for i, line in enumerate(result)
+                      if line.strip() == "[app]"
+                  ),
+                  0,
+              )
+
+              result.insert(
+                  insert_at,
+                  "android.accept_sdk_license = True"
+              )
+
+          p.write_text(
+              "\n".join(result) + "\n",
+              encoding="utf-8"
+          )
+          PY
+
+          echo "--- buildozer.spec ---"
+          grep -E "^(android\.arch|android\.api|android\.minapi|android\.ndk|android\.accept_sdk_license|requirements)" buildozer.spec || true
+
       - name: Build APK
         run: |
-          buildozer -v android debug
+          yes | buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ExpenseNotes-APK
           path: bin/*.apk
+          if-no-files-found: error
