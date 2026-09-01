@@ -17,7 +17,6 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-
           sudo apt-get install -y \
             build-essential \
             gcc \
@@ -26,7 +25,7 @@ jobs:
             git \
             zip \
             unzip \
-            openjdk-17-jdk \
+            openjdk-11-jdk \
             python3-pip \
             python3-dev \
             autoconf \
@@ -64,65 +63,47 @@ jobs:
           p = Path("buildozer.spec")
           text = p.read_text(encoding="utf-8")
 
+          # Fix minimum Android API
+          text = text.replace(
+              "android.minapi = 23",
+              "android.minapi = 24"
+          )
+
+          # Remove old android.arch lines
           lines = text.splitlines()
           result = []
-
-          in_app = False
-          arch_seen = False
-          license_seen = False
+          arch_added = False
 
           for line in lines:
-              stripped = line.strip()
-
-              if stripped.startswith("["):
-                  in_app = stripped == "[app]"
-
-              if in_app and stripped.startswith("android.arch"):
-                  if arch_seen:
-                      continue
-
-                  arch_seen = True
-                  result.append(
-                      "android.archs = arm64-v8a, armeabi-v7a"
-                  )
-                  continue
-
-              if in_app and stripped.startswith(
-                  "android.accept_sdk_license"
-              ):
-                  if license_seen:
-                      continue
-
-                  license_seen = True
-                  result.append(
-                      "android.accept_sdk_license = True"
-                  )
+              if line.strip().startswith("android.arch"):
+                  if not arch_added:
+                      result.append(
+                          "android.archs = arm64-v8a, armeabi-v7a"
+                      )
+                      arch_added = True
                   continue
 
               result.append(line)
 
-          if not arch_seen:
-              for i, line in enumerate(result):
-                  if line.strip() == "[app]":
-                      result.insert(
-                          i + 1,
-                          "android.archs = arm64-v8a, armeabi-v7a"
-                      )
-                      break
+          text = "\n".join(result)
 
-          if not license_seen:
-              for i, line in enumerate(result):
-                  if line.strip() == "[app]":
-                      result.insert(
-                          i + 1,
-                          "android.accept_sdk_license = True"
-                      )
-                      break
+          # Add android.archs if it doesn't exist
+          if "android.archs =" not in text:
+              text = text.replace(
+                  "[app]",
+                  "[app]\nandroid.archs = arm64-v8a, armeabi-v7a",
+                  1
+              )
 
-          p.write_text(
-              "\n".join(result) + "\n",
-              encoding="utf-8"
-          )
+          # Add SDK license acceptance
+          if "android.accept_sdk_license" not in text:
+              text = text.replace(
+                  "[app]",
+                  "[app]\nandroid.accept_sdk_license = True",
+                  1
+              )
+
+          p.write_text(text + "\n", encoding="utf-8")
           PY
 
           echo "===== BUILD CONFIG ====="
