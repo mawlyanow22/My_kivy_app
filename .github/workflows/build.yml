@@ -11,12 +11,14 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             build-essential \
             gcc \
@@ -28,6 +30,7 @@ jobs:
             openjdk-17-jdk \
             python3-pip \
             python3-dev \
+            python3-venv \
             autoconf \
             automake \
             autopoint \
@@ -42,30 +45,69 @@ jobs:
             libssl-dev \
             lbzip2
 
-      - name: Check compilers
+      - name: Check tools
         run: |
+          echo "===== GCC ====="
           gcc --version
+
+          echo "===== G++ ====="
           g++ --version
-          make --version
+
+          echo "===== Python ====="
+          python3 --version
+
+          echo "===== Java ====="
           java -version
+
+          echo "===== Make ====="
+          make --version
 
       - name: Install Buildozer
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install \
-            "buildozer" \
-            "Cython==0.29.34"
+          python3 -m pip install --upgrade buildozer
+          python3 -m pip install "Cython==0.29.34"
+
+      - name: Clean old Buildozer files
+        run: |
+          rm -rf .buildozer
+          rm -rf bin
+
+      - name: Prepare python-for-android
+        run: |
+          mkdir -p "$HOME/.buildozer/android/platform"
+
+          git clone \
+            --depth 1 \
+            --branch master \
+            https://github.com/kivy/python-for-android.git \
+            "$HOME/.buildozer/android/platform/python-for-android"
+
+          cd "$HOME/.buildozer/android/platform/python-for-android"
+
+          echo "===== P4A VERSION ====="
+          git log -1 --oneline
+
+          echo "===== PATCH P4A VENV ====="
+
+          sed -i \
+            "s/shprint(host_python, '-m', 'venv', 'venv')/shprint(host_python, '-m', 'venv', '--clear', 'venv')/" \
+            pythonforandroid/build.py
+
+          echo "===== CHECK PATCH ====="
+
+          grep -n "venv" pythonforandroid/build.py | head -20
 
       - name: Fix buildozer.spec
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           p = Path("buildozer.spec")
           text = p.read_text(encoding="utf-8")
 
           # Android minimum API
-          import re
           text = re.sub(
               r"^android\.minapi\s*=.*$",
               "android.minapi = 24",
@@ -73,7 +115,7 @@ jobs:
               flags=re.MULTILINE
           )
 
-          # Use modern KivyMD 2.0.0 and explicitly list its Android dependencies
+          # KivyMD 2.0.0
           text = re.sub(
               r"^requirements\s*=.*$",
               "requirements = python3,kivy,kivymd==2.0.0,pillow,materialyoucolor==3.0.3,materialshapes,pycairo,exceptiongroup,asyncgui,asynckivy,android",
@@ -81,7 +123,7 @@ jobs:
               flags=re.MULTILINE
           )
 
-          # Use stable p4a master instead of the current develop branch
+          # P4A master
           if re.search(r"^p4a\.branch\s*=", text, re.MULTILINE):
               text = re.sub(
                   r"^p4a\.branch\s*=.*$",
@@ -96,13 +138,15 @@ jobs:
                   1
               )
 
-          # Remove old duplicate android.arch
+          # Remove duplicate android.arch / android.archs
           lines = text.splitlines()
           result = []
           arch_added = False
 
           for line in lines:
-              if line.strip().startswith("android.arch"):
+              stripped = line.strip()
+
+              if stripped.startswith("android.arch"):
                   if not arch_added:
                       result.append(
                           "android.archs = arm64-v8a, armeabi-v7a"
@@ -114,6 +158,7 @@ jobs:
 
           text = "\n".join(result)
 
+          # Add architecture if missing
           if "android.archs =" not in text:
               text = text.replace(
                   "[app]",
@@ -121,7 +166,7 @@ jobs:
                   1
               )
 
-          # Android SDK license
+          # Accept Android SDK license
           if "android.accept_sdk_license" not in text:
               text = text.replace(
                   "[app]",
@@ -132,15 +177,21 @@ jobs:
           p.write_text(text + "\n", encoding="utf-8")
           PY
 
-          echo "===== BUILD CONFIG ====="
+          echo "===== FINAL BUILD CONFIG ====="
+
           grep -E \
             "^(requirements|android\.archs|android\.api|android\.minapi|android\.ndk|android\.accept_sdk_license|p4a\.branch)" \
             buildozer.spec || true
 
-      - name: Clean previous Buildozer files
+      - name: Verify python-for-android
         run: |
-          rm -rf .buildozer
-          rm -rf bin
+          echo "===== P4A LOCATION ====="
+          ls -la "$HOME/.buildozer/android/platform/python-for-android"
+
+          echo "===== P4A VENV PATCH ====="
+          grep -n "venv" \
+            "$HOME/.buildozer/android/platform/python-for-android/pythonforandroid/build.py" \
+            | head -20
 
       - name: Build APK
         env:
@@ -148,6 +199,14 @@ jobs:
           CXX: g++
         run: |
           buildozer -v android debug
+
+      - name: Check APK
+        run: |
+          echo "===== BIN DIRECTORY ====="
+          ls -lah bin || true
+
+          echo "===== APK FILES ====="
+          find bin -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
