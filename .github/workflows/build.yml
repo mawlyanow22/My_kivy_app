@@ -94,10 +94,32 @@ jobs:
             "s/shprint(host_python, '-m', 'venv', 'venv')/shprint(host_python, '-m', 'venv', '--clear', 'venv')/" \
             pythonforandroid/build.py
 
-          echo "===== CHECK PATCH ====="
+          echo "===== PATCH FREETYPE DOWNLOAD ====="
 
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path(
+              "pythonforandroid/recipes/freetype/__init__.py"
+          )
+
+          text = p.read_text(encoding="utf-8")
+
+          text = text.replace(
+              "https://download.savannah.gnu.org/releases/freetype/",
+              "https://github.com/freetype/freetype/releases/download/"
+          )
+
+          p.write_text(text, encoding="utf-8")
+
+          print("FREETYPE PATCH COMPLETE")
+          PY
+
+          echo "===== CHECK FREETYPE ====="
+          grep -n "url =" pythonforandroid/recipes/freetype/__init__.py || true
+
+          echo "===== CHECK VENV ====="
           grep -n "venv" pythonforandroid/build.py | head -20
-
       - name: Fix buildozer.spec
         run: |
           python3 - <<'PY'
